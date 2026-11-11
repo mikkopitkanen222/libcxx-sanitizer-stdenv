@@ -6,6 +6,16 @@
 let
   lib = pkgs.lib;
 
+  # DFSan's ABI lists name the functions that aren't instrumented. Clang adds LLVM's bundled list
+  # (share/dfsan_abilist.txt in the resource directory) by itself. The supplement adds glibc
+  # functions missing from it (see dfsan_abilist_supplement.txt).
+  dfsanSupplementFlags = [
+    "--start-no-unused-arguments"
+    "-mllvm"
+    "-dfsan-abilist=${./dfsan_abilist_supplement.txt}"
+    "--end-no-unused-arguments"
+  ];
+
   sanitizers = {
     memory = {
       short = "msan";
@@ -24,6 +34,17 @@ let
       short = "tsan";
       llvmUseSanitizer = "Thread";
       cflags = [ "-fsanitize=thread" ];
+    };
+    dataflow = {
+      short = "dfsan";
+      llvmUseSanitizer = "DataFlow";
+      cflags = [ "-fsanitize=dataflow" ] ++ dfsanSupplementFlags;
+      libcxxCflags = [
+        # Add LLVM's bundled ABI list, which libc++'s clang doesn't find by itself.
+        "-mllvm"
+        "-dfsan-abilist=${llvmPackages.compiler-rt}/share/dfsan_abilist.txt"
+      ]
+      ++ dfsanSupplementFlags;
     };
   };
 

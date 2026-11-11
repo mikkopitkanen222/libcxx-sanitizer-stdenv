@@ -1,0 +1,21 @@
+# glibc 2.42 functions missing from LLVM's bundled dfsan_abilist.txt. DFSan assumes every function
+# not in an ABI list is instrumented, and calls its "<name>.dfsan" version, which uninstrumented
+# glibc doesn't have. A missing entry fails with "undefined symbol: <name>.dfsan" at startup, or
+# "undefined reference" when linking.
+
+fun:copy_file_range=uninstrumented
+fun:copy_file_range=discard
+fun:__isoc23_strtoll_l=uninstrumented
+fun:__isoc23_strtoll_l=discard
+fun:__isoc23_strtoull_l=uninstrumented
+fun:__isoc23_strtoull_l=discard
+fun:__isoc23_vsscanf=uninstrumented
+fun:__isoc23_vsscanf=discard
+fun:__isoc23_wcstol=uninstrumented
+fun:__isoc23_wcstol=discard
+fun:__isoc23_wcstoll=uninstrumented
+fun:__isoc23_wcstoll=discard
+fun:__isoc23_wcstoul=uninstrumented
+fun:__isoc23_wcstoul=discard
+fun:__isoc23_wcstoull=uninstrumented
+fun:__isoc23_wcstoull=discard

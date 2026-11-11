@@ -18,17 +18,20 @@ Some sanitizers need *every* translation unit linked into the final binary to be
   Uninstrumented code writes memory without MSan marking it initialized, causing false positives.
 - [ThreadSanitizer](https://clang.llvm.org/docs/ThreadSanitizer.html) (TSan) detects data races at runtime.
   TSan misses synchronization in uninstrumented code, causing false positives, and misses races in it.
+- [DataFlowSanitizer](https://clang.llvm.org/docs/DataFlowSanitizer.html) (DFSan) tracks data flow with labels at runtime.
+  Labels don't propagate through uninstrumented code.
 
 This repository provides a drop-in replacement Nix [stdenv](https://ryantm.github.io/nixpkgs/stdenv/stdenv/) for each.
 It's built with an instrumented libc++, and will automatically instrument any derivations built with it.
 
 ## Usage
 
-Choose the sanitizer by its clang name (`-fsanitize=memory`, `-fsanitize=thread`):
+Choose the sanitizer by its clang name (`-fsanitize=memory`, `-fsanitize=thread`, `-fsanitize=dataflow`):
 
 ```nix
 stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; };
 stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "thread"; };
+stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "dataflow"; };
 # optionally with a specific LLVM version:
 stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; llvmPackages = pkgs.llvmPackages_23; };
 ```
@@ -98,11 +101,14 @@ stdenv.mkDerivation {
   It replaces calls like `memcpy()` with glibc's checking variants like `__memcpy_chk()`, which the sanitizers don't fully intercept.
   With MSan, memory they write stays marked uninitialized, causing false positives in correct code.
   With TSan, races on memory they access go unreported.
+  With DFSan, data they copy loses its labels.
 - Optimization levels are left to the build.
   Without an `-O` flag, code is built at `-O0`.
 - MSan: at `-O1` and above, reading an uninitialized local variable is undefined behaviour that the optimizer may delete before MSan instruments it.
   The read then goes unreported, or the enclosing function is deleted entirely and crashes without a report.
   Reads of memory the optimizer can't trace back to an uninitialized local, such as heap memory, are still reported.
+- DFSan: built with LLVM's bundled ABI list plus `dfsan_abilist_supplement.txt`, which adds glibc functions the bundled list lacks.
+  Without the bundled list, libc++ doesn't link; without the supplement, programs fail to start.
 
 ## License
 
