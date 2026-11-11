@@ -63,6 +63,14 @@
                   force_array_style = "block";
                 };
               };
+              deadnix = {
+                enable = true;
+                no-underscore = true;
+              };
+              statix = {
+                enable = true;
+                disabled-lints = [ "repeated_keys" ];
+              };
             };
           };
         };

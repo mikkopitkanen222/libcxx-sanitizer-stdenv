@@ -4,7 +4,7 @@
   sanitizer,
 }:
 let
-  lib = pkgs.lib;
+  inherit (pkgs) lib;
 
   # DFSan's ABI lists name the functions that aren't instrumented. Clang adds LLVM's bundled list
   # (share/dfsan_abilist.txt in the resource directory) by itself. The supplement adds glibc
