@@ -1,50 +1,72 @@
 {
   pkgs ? import <nixpkgs> { },
   llvmPackages ? pkgs.llvmPackages,
-  ...
+  sanitizer,
 }:
 let
   lib = pkgs.lib;
 
-  libcxx-msan = llvmPackages.libcxx.overrideAttrs (oldAttrs: {
-    pname = oldAttrs.pname + "-msan";
+  sanitizers = {
+    memory = {
+      short = "msan";
+      llvmUseSanitizer = "MemoryWithOrigins";
+      cflags = [
+        "-fsanitize=memory"
+        "-fno-omit-frame-pointer"
+        "-fsanitize-memory-track-origins=2"
+      ];
+      libcxxCflags = [
+        # Put sanitizer headers on the include path.
+        "-isystem ${lib.getDev llvmPackages.compiler-rt-libc}/include"
+      ];
+    };
+  };
+
+  settings =
+    sanitizers.${sanitizer} or (throw (
+      "libcxx-sanitizer-stdenv: unsupported sanitizer \"${sanitizer}\"; "
+      + "supported: ${lib.concatStringsSep ", " (lib.attrNames sanitizers)}"
+    ));
+
+  libcxx-sanitized = llvmPackages.libcxx.overrideAttrs (oldAttrs: {
+    pname = "${oldAttrs.pname}-${settings.short}";
     cmakeFlags =
       let
-        sharedFlags = lib.concatStringsSep " " [
-          # Put sanitizer headers on the include path.
-          "-isystem ${lib.getDev llvmPackages.compiler-rt-libc}/include"
-          # Silence unused "-rtlib=compiler-rt" (a link-only flag) compiler warnings.
-          "-Wno-unused-command-line-argument"
-        ];
+        sharedFlags = lib.concatStringsSep " " (
+          [
+            # Silence unused "-rtlib=compiler-rt" (a link-only flag) compiler warnings.
+            "-Wno-unused-command-line-argument"
+          ]
+          ++ settings.libcxxCflags or [ ]
+        );
       in
       (oldAttrs.cmakeFlags or [ ])
       ++ (lib.mapAttrsToList lib.cmakeFeature {
-        LLVM_USE_SANITIZER = "MemoryWithOrigins";
+        LLVM_USE_SANITIZER = settings.llvmUseSanitizer;
         CMAKE_C_FLAGS = sharedFlags;
         CMAKE_CXX_FLAGS = sharedFlags;
       });
   });
 
   # Remove fortify from default hardening flags. Derivations can opt back in with hardeningEnable.
-  # _FORTIFY_SOURCE replaces e.g. memcpy() with glibc's __memcpy_chk(), which MSan doesn't fully
-  # intercept, so the copied memory stays marked uninitialized, producing false positives.
-  bintools-msan = llvmPackages.bintools.override {
+  bintools-sanitized = llvmPackages.bintools.override {
     defaultHardeningFlags = lib.subtractLists [
       "fortify"
       "fortify3"
     ] llvmPackages.bintools.defaultHardeningFlags;
   };
 
-  cc-msan = pkgs.wrapCCWith {
-    name = "clang-msan-wrapper";
+  cc-sanitized = pkgs.wrapCCWith {
+    name = "clang-${settings.short}-wrapper";
     cc = llvmPackages.clang-unwrapped;
-    libcxx = libcxx-msan;
-    # bintools ships symbolizer; Symbolizer turns reported addresses to file:line locations.
-    bintools = bintools-msan;
-    # compiler-rt ships sanitizer headers (sanitizer/msan_interface.h).
+    libcxx = libcxx-sanitized;
+    # bintools ships llvm-symbolizer, which turns reported addresses into file:line locations.
+    bintools = bintools-sanitized;
+    # compiler-rt ships sanitizer headers (sanitizer/*_interface.h).
     extraPackages = [ llvmPackages.compiler-rt ];
     # clang-unwrapped only ships its builtin headers.
-    # compiler-rt ships the sanitizer runtime archives (libclang_rt.msan*.a).
+    # compiler-rt ships the sanitizer runtime archives (libclang_rt.*.a) and default
+    # ignore and ABI lists (share/).
     extraBuildCommands =
       let
         cc = llvmPackages.clang-unwrapped;
@@ -58,14 +80,10 @@ let
         ln -s "${llvmPackages.compiler-rt}/share" "$rsrc/share"
         echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
       '';
-    # MSan requires every translation unit linked into the final binary to be instrumented.
+    # The sanitizer requires every translation unit linked into the final binary to be instrumented.
     # Baking the flags into the wrapper itself makes every derivation built with this stdenv
     # automatically instrumented.
-    nixSupport.cc-cflags = [
-      "-fsanitize=memory"
-      "-fno-omit-frame-pointer"
-      "-fsanitize-memory-track-origins=2"
-    ];
+    nixSupport.cc-cflags = settings.cflags;
   };
 in
-pkgs.overrideCC llvmPackages.libcxxStdenv cc-msan
+pkgs.overrideCC llvmPackages.libcxxStdenv cc-sanitized

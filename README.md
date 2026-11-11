@@ -12,14 +12,23 @@
 
 </div>
 
-[MemorySanitizer](https://clang.llvm.org/docs/MemorySanitizer.html) (MSan) is a dynamic analysis tool used to detect uses of uninitialized memory at runtime.
-In order to avoid false positives, all translation units linked into the final binary must be instrumented (compiled with MSan).
-This includes libc++ (the standard library), as well.
+Some sanitizers need *every* translation unit linked into the final binary to be instrumented, including libc++ (the standard library):
 
-`libcxx-sanitizer-stdenv` is a drop-in replacement Nix [stdenv](https://ryantm.github.io/nixpkgs/stdenv/stdenv/).
-It's built with an MSan-instrumented libc++, and will automatically instrument any derivations built with it.
+- [MemorySanitizer](https://clang.llvm.org/docs/MemorySanitizer.html) (MSan) detects uses of uninitialized memory at runtime.
+  Uninstrumented code writes memory without MSan marking it initialized, causing false positives.
+
+This repository provides a drop-in replacement Nix [stdenv](https://ryantm.github.io/nixpkgs/stdenv/stdenv/) for it.
+It's built with an instrumented libc++, and will automatically instrument any derivations built with it.
 
 ## Usage
+
+Choose the sanitizer by its clang name (`-fsanitize=memory`):
+
+```nix
+stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; };
+# optionally with a specific LLVM version:
+stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; llvmPackages = pkgs.llvmPackages_23; };
+```
 
 ### Stable Nix, No Flakes
 
@@ -27,9 +36,7 @@ It's built with an MSan-instrumented libc++, and will automatically instrument a
 let
   pkgs = import <nixpkgs> { };
   libcxx-sanitizer-stdenv = builtins.fetchTarball "https://github.com/mikkopitkanen222/libcxx-sanitizer-stdenv/archive/master.tar.gz";
-  stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; };
-  # or with a specific LLVM version:
-  # stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
+  stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; };
 in
 # ...
 ```
@@ -51,9 +58,7 @@ in
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
-      stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; };
-      # or with a specific LLVM version:
-      # stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
+      stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; };
     in
     { /* ... */ };
 }
@@ -61,7 +66,7 @@ in
 
 ### Example
 
-This builds `package.nix` with MSan-instrumentation, on Clang 23.
+This builds `package.nix` with MSan instrumentation, on Clang 23.
 If any dependencies are linked into the final binary (e.g. `gtest`), they must also be instrumented.
 
 ```nix
@@ -69,7 +74,7 @@ If any dependencies are linked into the final binary (e.g. `gtest`), they must a
 let
   pkgs = import <nixpkgs> { };
   libcxx-sanitizer-stdenv = builtins.fetchTarball "https://github.com/mikkopitkanen222/libcxx-sanitizer-stdenv/archive/master.tar.gz";
-  stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
+  stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; llvmPackages = pkgs.llvmPackages_23; };
 in
 pkgs.callPackage ./package.nix { inherit stdenv; }
 ```
@@ -90,7 +95,8 @@ stdenv.mkDerivation {
   It replaces calls like `memcpy()` with glibc's checking variants like `__memcpy_chk()`, which MSan doesn't fully intercept.
   Memory they write stays marked uninitialized, causing false positives in correct code.
 - Optimization levels are left to the build.
-  At `-O1` and above, reading an uninitialized local variable is undefined behaviour that the optimizer may delete before MSan instruments it.
+  Without an `-O` flag, code is built at `-O0`.
+- MSan: at `-O1` and above, reading an uninitialized local variable is undefined behaviour that the optimizer may delete before MSan instruments it.
   The read then goes unreported, or the enclosing function is deleted entirely and crashes without a report.
   Reads of memory the optimizer can't trace back to an uninitialized local, such as heap memory, are still reported.
 
