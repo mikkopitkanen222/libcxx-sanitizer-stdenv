@@ -20,6 +20,11 @@ let
         "-isystem ${lib.getDev llvmPackages.compiler-rt-libc}/include"
       ];
     };
+    thread = {
+      short = "tsan";
+      llvmUseSanitizer = "Thread";
+      cflags = [ "-fsanitize=thread" ];
+    };
   };
 
   settings =

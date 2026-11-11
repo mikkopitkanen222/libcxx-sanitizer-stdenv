@@ -16,16 +16,19 @@ Some sanitizers need *every* translation unit linked into the final binary to be
 
 - [MemorySanitizer](https://clang.llvm.org/docs/MemorySanitizer.html) (MSan) detects uses of uninitialized memory at runtime.
   Uninstrumented code writes memory without MSan marking it initialized, causing false positives.
+- [ThreadSanitizer](https://clang.llvm.org/docs/ThreadSanitizer.html) (TSan) detects data races at runtime.
+  TSan misses synchronization in uninstrumented code, causing false positives, and misses races in it.
 
-This repository provides a drop-in replacement Nix [stdenv](https://ryantm.github.io/nixpkgs/stdenv/stdenv/) for it.
+This repository provides a drop-in replacement Nix [stdenv](https://ryantm.github.io/nixpkgs/stdenv/stdenv/) for each.
 It's built with an instrumented libc++, and will automatically instrument any derivations built with it.
 
 ## Usage
 
-Choose the sanitizer by its clang name (`-fsanitize=memory`):
+Choose the sanitizer by its clang name (`-fsanitize=memory`, `-fsanitize=thread`):
 
 ```nix
 stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; };
+stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "thread"; };
 # optionally with a specific LLVM version:
 stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; sanitizer = "memory"; llvmPackages = pkgs.llvmPackages_23; };
 ```
@@ -92,8 +95,9 @@ stdenv.mkDerivation {
 ## Notes
 
 - `fortify` hardening (`_FORTIFY_SOURCE`) is off unless a derivation sets `hardeningEnable = [ "fortify" ];`.
-  It replaces calls like `memcpy()` with glibc's checking variants like `__memcpy_chk()`, which MSan doesn't fully intercept.
-  Memory they write stays marked uninitialized, causing false positives in correct code.
+  It replaces calls like `memcpy()` with glibc's checking variants like `__memcpy_chk()`, which the sanitizers don't fully intercept.
+  With MSan, memory they write stays marked uninitialized, causing false positives in correct code.
+  With TSan, races on memory they access go unreported.
 - Optimization levels are left to the build.
   Without an `-O` flag, code is built at `-O0`.
 - MSan: at `-O1` and above, reading an uninitialized local variable is undefined behaviour that the optimizer may delete before MSan instruments it.
