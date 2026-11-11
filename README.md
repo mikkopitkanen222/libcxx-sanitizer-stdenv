@@ -1,12 +1,12 @@
 <div align="center">
 
-# libcxx-msan-stdenv
+# libcxx-sanitizer-stdenv
 
-**MSan-instrumented clang+libc++ Nix stdenv**
+**Sanitizer-instrumented clang+libc++ Nix stdenvs**
 
 <p>
-<a href="https://github.com/mikkopitkanen222/libcxx-msan-stdenv/actions/workflows/checks.yml">
-<img alt="GitHub master branch status" src="https://github.com/mikkopitkanen222/libcxx-msan-stdenv/actions/workflows/checks.yml/badge.svg"/>
+<a href="https://github.com/mikkopitkanen222/libcxx-sanitizer-stdenv/actions/workflows/checks.yml">
+<img alt="GitHub master branch status" src="https://github.com/mikkopitkanen222/libcxx-sanitizer-stdenv/actions/workflows/checks.yml/badge.svg"/>
 </a>
 </p>
 
@@ -16,7 +16,7 @@
 In order to avoid false positives, all translation units linked into the final binary must be instrumented (compiled with MSan).
 This includes libc++ (the standard library), as well.
 
-`libcxx-msan-stdenv` is a drop-in replacement Nix [stdenv](https://ryantm.github.io/nixpkgs/stdenv/stdenv/).
+`libcxx-sanitizer-stdenv` is a drop-in replacement Nix [stdenv](https://ryantm.github.io/nixpkgs/stdenv/stdenv/).
 It's built with an MSan-instrumented libc++, and will automatically instrument any derivations built with it.
 
 ## Usage
@@ -26,10 +26,10 @@ It's built with an MSan-instrumented libc++, and will automatically instrument a
 ```nix
 let
   pkgs = import <nixpkgs> { };
-  libcxx-msan-stdenv = builtins.fetchTarball "https://github.com/mikkopitkanen222/libcxx-msan-stdenv/archive/master.tar.gz";
-  stdenv = import libcxx-msan-stdenv { inherit pkgs; };
+  libcxx-sanitizer-stdenv = builtins.fetchTarball "https://github.com/mikkopitkanen222/libcxx-sanitizer-stdenv/archive/master.tar.gz";
+  stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; };
   # or with a specific LLVM version:
-  # stdenv = import libcxx-msan-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
+  # stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
 in
 # ...
 ```
@@ -40,20 +40,20 @@ in
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    libcxx-msan-stdenv = {
-      url = "github:mikkopitkanen222/libcxx-msan-stdenv";
-      inputs.nixpkgs.follows = "nixpkgs";
+    libcxx-sanitizer-stdenv = {
+      url = "github:mikkopitkanen222/libcxx-sanitizer-stdenv";
+      flake = false;
     };
   };
 
   outputs =
-    { nixpkgs, libcxx-msan-stdenv, ... }:
+    { nixpkgs, libcxx-sanitizer-stdenv, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
-      stdenv = import libcxx-msan-stdenv { inherit pkgs; };
+      stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; };
       # or with a specific LLVM version:
-      # stdenv = import libcxx-msan-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
+      # stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
     in
     { /* ... */ };
 }
@@ -68,8 +68,8 @@ If any dependencies are linked into the final binary (e.g. `gtest`), they must a
 # default.nix
 let
   pkgs = import <nixpkgs> { };
-  libcxx-msan-stdenv = builtins.fetchTarball "https://github.com/mikkopitkanen222/libcxx-msan-stdenv/archive/master.tar.gz";
-  stdenv = import libcxx-msan-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
+  libcxx-sanitizer-stdenv = builtins.fetchTarball "https://github.com/mikkopitkanen222/libcxx-sanitizer-stdenv/archive/master.tar.gz";
+  stdenv = import libcxx-sanitizer-stdenv { inherit pkgs; llvmPackages = pkgs.llvmPackages_23; };
 in
 pkgs.callPackage ./package.nix { inherit stdenv; }
 ```

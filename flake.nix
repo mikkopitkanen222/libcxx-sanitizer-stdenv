@@ -1,5 +1,5 @@
 {
-  description = "MSan-instrumented clang+libc++ Nix stdenv";
+  description = "Sanitizer-instrumented clang+libc++ Nix stdenvs";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
