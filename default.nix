@@ -25,27 +25,22 @@ let
       });
   });
 
-  # "fortify"/"fortify3" hardening unconditionally injects "-O2 -U_FORTIFY_SOURCE ...
-  # -D_FORTIFY_SOURCE=2". At "-O2", clang's optimizer miscompiles functions with uninitialized
-  # local reads under "-fsanitize=memory", causing the entire function body to be deleted, which
-  # in turn causes crashes with "MemorySanitizer: stack-overflow"/DEADLYSIGNAL. This can be
-  # countered by setting "-O0". Setting "-U_FORTIFY_SOURCE" silences glibc warnings on
-  # contradictory "-O0"/"_FORTIFY_SOURCE".
-  fortifyEnabledByDefault = lib.any (flag: lib.elem flag (cc-msan.defaultHardeningFlags or [ ])) [
-    "fortify"
-    "fortify3"
-  ];
-  hardeningCounterFlags = lib.optionals fortifyEnabledByDefault [
-    "-O0"
-    "-U_FORTIFY_SOURCE"
-  ];
+  # Remove fortify from default hardening flags. Derivations can opt back in with hardeningEnable.
+  # _FORTIFY_SOURCE replaces e.g. memcpy() with glibc's __memcpy_chk(), which MSan doesn't fully
+  # intercept, so the copied memory stays marked uninitialized, producing false positives.
+  bintools-msan = llvmPackages.bintools.override {
+    defaultHardeningFlags = lib.subtractLists [
+      "fortify"
+      "fortify3"
+    ] llvmPackages.bintools.defaultHardeningFlags;
+  };
 
   cc-msan = pkgs.wrapCCWith {
     name = "clang-msan-wrapper";
     cc = llvmPackages.clang-unwrapped;
     libcxx = libcxx-msan;
     # bintools ships symbolizer; Symbolizer turns reported addresses to file:line locations.
-    bintools = llvmPackages.bintools;
+    bintools = bintools-msan;
     # compiler-rt ships sanitizer headers (sanitizer/msan_interface.h).
     extraPackages = [ llvmPackages.compiler-rt ];
     # clang-unwrapped only ships its builtin headers.
@@ -70,8 +65,7 @@ let
       "-fsanitize=memory"
       "-fno-omit-frame-pointer"
       "-fsanitize-memory-track-origins=2"
-    ]
-    ++ hardeningCounterFlags;
+    ];
   };
 in
 pkgs.overrideCC llvmPackages.libcxxStdenv cc-msan

@@ -84,6 +84,16 @@ stdenv.mkDerivation {
 }
 ```
 
+## Notes
+
+- `fortify` hardening (`_FORTIFY_SOURCE`) is off unless a derivation sets `hardeningEnable = [ "fortify" ];`.
+  It replaces calls like `memcpy()` with glibc's checking variants like `__memcpy_chk()`, which MSan doesn't fully intercept.
+  Memory they write stays marked uninitialized, causing false positives in correct code.
+- Optimization levels are left to the build.
+  At `-O1` and above, reading an uninitialized local variable is undefined behaviour that the optimizer may delete before MSan instruments it.
+  The read then goes unreported, or the enclosing function is deleted entirely and crashes without a report.
+  Reads of memory the optimizer can't trace back to an uninitialized local, such as heap memory, are still reported.
+
 ## License
 
 This project is licensed under the terms of the MIT license.

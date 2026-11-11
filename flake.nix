@@ -26,48 +26,110 @@
       perSystem = { config, pkgs, ... }: {
         packages.default = import ./default.nix { inherit pkgs; };
 
-        checks.default =
+        checks =
           let
             stdenv = config.packages.default;
-          in
-          stdenv.mkDerivation {
-            name = "libcxx-msan-stdenv-catches-uninitialized-read";
-            dontUnpack = true;
-            buildPhase = ''
-              cat > test.cpp <<'EOF'
+
+            # Reads uninitialized heap memory through a non-inlined allocator, so the optimizer
+            # can't prove the memory is uninitialized. Reading an uninitialized local is undefined
+            # behaviour, which clang may delete at -O1 and above before MSan instruments it.
+            uninitializedRead = ''
+              [[gnu::noinline]] int* allocate() { return new int[4]; }
+
               int main() {
-                int a;
-                if (a == 42) return 1;
-                return 0;
+                int* values = allocate();
+                int result = values[1] == 42 ? 1 : 0;
+                delete[] values;
+                return result;
               }
-              EOF
-              $CXX -g -std=c++17 test.cpp -o test
-
-              set +e
-              MSAN_OPTIONS="exitcode=99" ./test >output.log 2>&1
-              code=$?
-              set -e
-
-              if [ $code -ne 99 ]; then
-                echo "FAIL: expected MemorySanitizer to catch the uninitialized read and exit 99, got exit code $code instead" >&2
-                cat output.log >&2
-                exit 1
-              fi
-
-              if ! grep -q "WARNING: MemorySanitizer: use-of-uninitialized-value$" output.log; then
-                echo "FAIL: expected MemorySanitizer report text wasn't found in output" >&2
-                cat output.log >&2
-                exit 1
-              fi
-
-              if ! grep -qE "^SUMMARY: MemorySanitizer: use-of-uninitialized-value /build/test\.cpp:[0-9]+:[0-9]+ in main$" output.log; then
-                echo "FAIL: expected MemorySanitizer to symbolize the error location" >&2
-                cat output.log >&2
-                exit 1
-              fi
             '';
-            installPhase = "touch $out";
-          };
+
+            # Must run without reports. String streams run code from the compiled libc++ library.
+            # The memcpy() size is unknown at compile time, so _FORTIFY_SOURCE would turn it into
+            # glibc's __memcpy_chk(). MSan doesn't intercept it, so the copy would stay marked
+            # uninitialized and reading it would be reported.
+            correctCode = ''
+              #include <cstring>
+              #include <sstream>
+              #include <string>
+
+              [[gnu::noinline]] std::size_t size(const char* s) { return std::strlen(s) + 1; }
+
+              int main(int argc, char**) {
+                std::ostringstream stream;
+                stream << "hello " << argc;
+                std::string text = stream.str();
+                char copy[32];
+                std::memcpy(copy, text.c_str(), size(text.c_str()));
+                return copy[0] == 'h' ? 0 : 1;
+              }
+            '';
+
+            # Compiles `source` with `optFlag`, runs it, and checks MSan's verdict.
+            mkCheck =
+              {
+                name,
+                source,
+                optFlag,
+                expectReport,
+              }:
+              stdenv.mkDerivation {
+                inherit name;
+                dontUnpack = true;
+                buildPhase = ''
+                  cp ${pkgs.writeText "test.cpp" source} test.cpp
+                  $CXX -g ${optFlag} -std=c++17 test.cpp -o test
+
+                  set +e
+                  MSAN_OPTIONS="exitcode=99" ./test >output.log 2>&1
+                  code=$?
+                  set -e
+
+                  fail() {
+                    echo "FAIL: $1" >&2
+                    cat output.log >&2
+                    exit 1
+                  }
+                ''
+                + (
+                  if expectReport then
+                    ''
+                      [ $code -eq 99 ] || fail "expected MSan to exit 99, got $code"
+                      grep -q "WARNING: MemorySanitizer: use-of-uninitialized-value$" output.log \
+                        || fail "expected MSan report text wasn't found in output"
+                      grep -qE "^SUMMARY: MemorySanitizer: use-of-uninitialized-value /build/test\.cpp:[0-9]+:[0-9]+ in main$" output.log \
+                        || fail "expected MSan to symbolize the error location"
+                    ''
+                  else
+                    ''
+                      [ $code -eq 0 ] || fail "expected MSan to exit 0, got $code"
+                      ! grep -q "MemorySanitizer" output.log || fail "unexpected MSan report"
+                    ''
+                );
+                installPhase = "touch $out";
+              };
+
+            optLevels = {
+              O0 = "-O0";
+              O1 = "-O1";
+              O2 = "-O2";
+              O3 = "-O3";
+            };
+          in
+          pkgs.lib.concatMapAttrs (level: optFlag: {
+            "catches-uninitialized-read-${level}" = mkCheck {
+              name = "libcxx-msan-stdenv-catches-uninitialized-read-${level}";
+              source = uninitializedRead;
+              inherit optFlag;
+              expectReport = true;
+            };
+            "no-false-positives-${level}" = mkCheck {
+              name = "libcxx-msan-stdenv-no-false-positives-${level}";
+              source = correctCode;
+              inherit optFlag;
+              expectReport = false;
+            };
+          }) optLevels;
 
         treefmt = {
           projectRootFile = "flake.nix";
