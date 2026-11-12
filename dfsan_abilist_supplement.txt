@@ -1,4 +1,4 @@
-# glibc 2.42 functions missing from LLVM's bundled dfsan_abilist.txt. DFSan assumes every function
+# glibc 2.44 functions missing from LLVM's bundled dfsan_abilist.txt. DFSan assumes every function
 # not in an ABI list is instrumented, and calls its "<name>.dfsan" version, which uninstrumented
 # glibc doesn't have. A missing entry fails with "undefined symbol: <name>.dfsan" at startup, or
 # "undefined reference" when linking.
